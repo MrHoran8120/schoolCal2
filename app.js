@@ -35,6 +35,7 @@ const dom = {
   exportJsonButton: document.getElementById("exportJsonButton"),
   importJsonButton: document.getElementById("importJsonButton"),
   jsonFileInput: document.getElementById("jsonFileInput"),
+  lastUpdatedLabel: document.getElementById("lastUpdatedLabel"),
   sidebarToggle: document.getElementById("sidebarToggle"),
 };
 
@@ -51,6 +52,10 @@ const state = {
   yearFilters: new Set(),
   isSidebarHidden: false,
 };
+
+function getCurrentTimestamp() {
+  return new Date().toISOString();
+}
 
 const dataStore = {
   db: null,
@@ -90,6 +95,10 @@ const dataStore = {
     });
   },
   saveEvent(record) {
+    record.lastModified = getCurrentTimestamp();
+    if (!record.syncStatus) {
+      record.syncStatus = "local";
+    }
     return new Promise((resolve, reject) => {
       try {
         const store = this.transaction("readwrite");
@@ -174,8 +183,10 @@ function openDB() {
 
 function refreshEvents() {
   if (!dataStore.db) return;
-  dataStore.listEvents()
-    .then((events) => {
+  dataStore
+    .listEvents()
+    .then(async (events) => {
+      await migrateSyncMetadata(events);
       const sorted = events.sort(
         (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
       );
@@ -185,6 +196,32 @@ function refreshEvents() {
       render();
     })
     .catch((error) => console.error("Unable to fetch events", error));
+}
+
+function ensureSyncMetadata(entry) {
+  let needsUpdate = false;
+  if (!entry.syncStatus) {
+    entry.syncStatus = "local";
+    needsUpdate = true;
+  }
+  if (!entry.lastModified) {
+    entry.lastModified = getCurrentTimestamp();
+    needsUpdate = true;
+  }
+  return needsUpdate;
+}
+
+async function migrateSyncMetadata(events) {
+  const pending = [];
+  if (!Array.isArray(events)) return;
+  events.forEach((entry) => {
+    if (ensureSyncMetadata(entry)) {
+      pending.push(entry);
+    }
+  });
+  handlePotentialConflicts(events);
+  if (!pending.length) return;
+  await Promise.all(pending.map((entry) => dataStore.saveEvent(entry)));
 }
 
 function eventMatchesFilter(event, filter = state.filter) {
@@ -201,6 +238,58 @@ function matchesYearFilters(event) {
   if (!state.yearFilters?.size) return true;
   const entries = Array.from(state.yearFilters);
   return entries.some((year) => eventHasYearNumber(event, year));
+}
+
+const SYNC_STATUS = {
+  local: { label: "Local", className: "sync-local" },
+  synced: { label: "Synced", className: "sync-synced" },
+  conflict: { label: "Conflict", className: "sync-conflict" },
+};
+
+function getSyncBadgeInfo(status) {
+  const key = (status || "local").toLowerCase();
+  return SYNC_STATUS[key] || SYNC_STATUS.local;
+}
+
+function handlePotentialConflicts(events) {
+  // TODO: Add conflict detection/resolution once a sync algorithm is defined.
+  // This placeholder ensures the app gracefully ignores conflicts while remaining structured for future logic.
+  if (!Array.isArray(events)) return;
+  events.forEach((entry) => {
+    if (entry.syncStatus === "conflict") {
+      // TODO: Consider annotating conflict entries or notifying the user before actual resolution.
+    }
+  });
+}
+
+function formatTimeAgo(iso) {
+  if (!iso) return "just now";
+  const target = new Date(iso).getTime();
+  if (Number.isNaN(target)) return "just now";
+  const deltaSeconds = Math.max(0, Math.floor((Date.now() - target) / 1000));
+  if (deltaSeconds < 60) return "just now";
+  if (deltaSeconds < 3600) return `${Math.round(deltaSeconds / 60)} minutes ago`;
+  if (deltaSeconds < 86400) return `${Math.round(deltaSeconds / 3600)} hours ago`;
+  return `${Math.round(deltaSeconds / 86400)} days ago`;
+}
+
+function getLatestLastModified(events) {
+  if (!Array.isArray(events) || !events.length) return null;
+  return events.reduce((latest, entry) => {
+    if (!entry?.lastModified) return latest;
+    if (!latest) return entry.lastModified;
+    return new Date(entry.lastModified) > new Date(latest) ? entry.lastModified : latest;
+  }, null);
+}
+
+function updateLastUpdatedLabel() {
+  if (!dom.lastUpdatedLabel) return;
+  const latest = getLatestLastModified(state.events);
+  if (!latest) {
+    dom.lastUpdatedLabel.textContent = "Last updated: —";
+    return;
+  }
+  dom.lastUpdatedLabel.textContent = `Last updated: ${formatTimeAgo(latest)}`;
 }
 
 function eventHasYearNumber(event, yearNumber) {
@@ -226,6 +315,7 @@ function render() {
   dom.selectedDateLabel.textContent = dateString;
   dom.eventDateHeading.textContent = toEventHeading(state.selectedDate);
   dom.datePicker.value = toISO(state.selectedDate);
+  updateLastUpdatedLabel();
 
   const targeted = state.events.filter(
     (entry) =>
@@ -284,12 +374,17 @@ function render() {
     const meta = document.createElement("div");
     meta.className = "meta";
     meta.innerHTML = `<span>${event.subject || "General"}</span><span>${event.notes ? "Notes" : "No notes"}</span>`;
+    const syncBadge = document.createElement("span");
+    const badgeInfo = getSyncBadgeInfo(event.syncStatus);
+    syncBadge.className = `event-sync-badge ${badgeInfo.className}`;
+    syncBadge.textContent = badgeInfo.label;
     const notes = document.createElement("p");
     notes.style.margin = "6px 0 0";
     notes.style.color = "var(--muted)";
     notes.textContent = event.notes ? event.notes : "Tap to add more context.";
 
     text.append(title, meta, notes);
+    text.append(syncBadge);
 
     const deleteButton = document.createElement("button");
     deleteButton.textContent = "🗑";
@@ -373,8 +468,12 @@ function renderTermView(group) {
           const item = document.createElement("li");
           item.className = "term-day-event";
           item.style.borderLeftColor = event.color || "var(--accent)";
+          const syncInfo = getSyncBadgeInfo(event.syncStatus);
           item.innerHTML = `
-            <span class="term-day-event-title">${event.title}</span>
+            <div class="term-day-event-heading">
+              <span class="term-day-event-title">${event.title}</span>
+              <span class="term-day-event-sync ${syncInfo.className}">${syncInfo.label}</span>
+            </div>
             <span class="term-day-event-meta">${event.subject || ""}</span>
           `;
           list.appendChild(item);
@@ -736,6 +835,7 @@ function mapRowToEvent(row, sourceKey = "nsw-doe", origin = ORIGINS.NSWDOE) {
     : "#1d3c72";
   const yearTags = getYearTagsForRow(row);
 
+  const now = getCurrentTimestamp();
   return {
     id,
     title,
@@ -750,6 +850,8 @@ function mapRowToEvent(row, sourceKey = "nsw-doe", origin = ORIGINS.NSWDOE) {
     createdAt: new Date().toISOString(),
     startDate: normalizeDate(row.StartDate) || date,
     endDate: normalizeDate(row.EndDate) || date,
+    lastModified: now,
+    syncStatus: "local",
   };
 }
 
@@ -851,6 +953,8 @@ function normalizeImportedEvent(entry) {
       : getYearTagsFromText(`${entry.title} ${entry.subject} ${entry.notes}`),
     createdAt: entry.createdAt || new Date().toISOString(),
     type: entry.type || "event",
+    lastModified: entry.lastModified || getCurrentTimestamp(),
+    syncStatus: entry.syncStatus || "local",
   };
 }
 
