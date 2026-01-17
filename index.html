@@ -19,6 +19,7 @@
           <p class="brand-subtitle">Teacher planner</p>
         </div>
       </div>
+      <button class="ghost-button small sidebar-toggle" id="sidebarToggle" aria-expanded="true" aria-label="Toggle sidebar">☰</button>
       <div class="year-selector">
         <button class="ghost-button" data-nav="prev" aria-label="Previous year">&lt;</button>
         <span id="yearDisplay">2025</span>
@@ -124,6 +125,7 @@
     <div class="modal-overlay" id="modalOverlay" aria-hidden="true">
       <div class="modal">
         <h2>Add new event</h2>
+        <p class="input-error" id="modalErrorMessage" aria-live="polite"></p>
         <form id="eventForm">
           <label>
             Title
@@ -153,6 +155,7 @@
       </div>
     </div>
 
+    <div class="toast-container" id="toastContainer" aria-live="polite"></div>
     <script src="app.js" defer></script>
   </body>
 </html>

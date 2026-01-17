@@ -1,5 +1,11 @@
 const DB_NAME = "schoolcal-db";
+const DB_VERSION = 1;
 const STORE_NAME = "events";
+const ORIGINS = {
+  NSWDOE: "NSWDOE",
+  SENTRAL: "Sentral",
+  PERSONAL: "personal",
+};
 
 const dom = {
   yearDisplay: document.getElementById("yearDisplay"),
@@ -23,13 +29,15 @@ const dom = {
   weekLetterToggle: document.getElementById("weekLetterToggle"),
   sentralImportButton: document.getElementById("sentralImportButton"),
   sentralInput: document.getElementById("sentralFileInput"),
+  modalErrorMessage: document.getElementById("modalErrorMessage"),
+  toastContainer: document.getElementById("toastContainer"),
   yearFilterInputs: document.querySelectorAll(".year-filter-input"),
+  sidebarToggle: document.getElementById("sidebarToggle"),
 };
 
 const WEEK_LETTER_KEY = "schoolcal-week-letters";
 
 const state = {
-  db: null,
   events: [],
   selectedDate: new Date(),
   filter: "",
@@ -38,6 +46,82 @@ const state = {
   termGroups: [],
   weekLetterMap: loadWeekLetterPreferences(),
   yearFilters: new Set(),
+  isSidebarHidden: false,
+};
+
+const dataStore = {
+  db: null,
+  open() {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(DB_NAME, DB_VERSION);
+      request.onupgradeneeded = (event) => {
+        const db = event.target.result;
+        if (!db.objectStoreNames.contains(STORE_NAME)) {
+          db.createObjectStore(STORE_NAME, { keyPath: "id" });
+        }
+      };
+      request.onsuccess = (event) => {
+        this.db = event.target.result;
+        resolve(this.db);
+      };
+      request.onerror = (event) => reject(event.target.error);
+    });
+  },
+  transaction(mode = "readonly") {
+    if (!this.db) {
+      throw new Error("Database is not initialized.");
+    }
+    const tx = this.db.transaction(STORE_NAME, mode);
+    return tx.objectStore(STORE_NAME);
+  },
+  listEvents() {
+    return new Promise((resolve, reject) => {
+      try {
+        const store = this.transaction("readonly");
+        const request = store.getAll();
+        request.onsuccess = (event) => resolve(event.target.result);
+        request.onerror = (event) => reject(event.target.error);
+      } catch (error) {
+        reject(error);
+      }
+    });
+  },
+  saveEvent(record) {
+    return new Promise((resolve, reject) => {
+      try {
+        const store = this.transaction("readwrite");
+        const request = store.put(record);
+        request.onsuccess = () => resolve(record);
+        request.onerror = (event) => reject(event.target.error);
+      } catch (error) {
+        reject(error);
+      }
+    });
+  },
+  deleteEvent(id) {
+    return new Promise((resolve, reject) => {
+      try {
+        const store = this.transaction("readwrite");
+        const request = store.delete(id);
+        request.onsuccess = resolve;
+        request.onerror = (event) => reject(event.target.error);
+      } catch (error) {
+        reject(error);
+      }
+    });
+  },
+  clearAll() {
+    return new Promise((resolve, reject) => {
+      try {
+        const store = this.transaction("readwrite");
+        const request = store.clear();
+        request.onsuccess = resolve;
+        request.onerror = (event) => reject(event.target.error);
+      } catch (error) {
+        reject(error);
+      }
+    });
+  },
 };
 
 function toLocaleLabel(date) {
@@ -79,76 +163,15 @@ function toISO(date) {
 }
 
 function openDB() {
-  const request = indexedDB.open(DB_NAME, 1);
-  request.onupgradeneeded = (event) => {
-    const db = event.target.result;
-    if (!db.objectStoreNames.contains(STORE_NAME)) {
-      db.createObjectStore(STORE_NAME, { keyPath: "id" });
-    }
-  };
-
-  request.onsuccess = (event) => {
-    state.db = event.target.result;
-    refreshEvents();
-  };
-
-  request.onerror = () => {
-    console.error("Unable to open IndexedDB.");
-  };
-}
-
-function getAllEvents() {
-  return new Promise((resolve, reject) => {
-    const tx = state.db.transaction(STORE_NAME, "readonly");
-    const store = tx.objectStore(STORE_NAME);
-    const req = store.openCursor();
-    const all = [];
-    req.onsuccess = (event) => {
-      const cursor = event.target.result;
-      if (cursor) {
-        all.push(cursor.value);
-        cursor.continue();
-      } else {
-        resolve(all);
-      }
-    };
-    req.onerror = (event) => reject(event.target.error);
-  });
-}
-
-function saveEvent(record) {
-  return new Promise((resolve, reject) => {
-    const tx = state.db.transaction(STORE_NAME, "readwrite");
-    const store = tx.objectStore(STORE_NAME);
-    const req = store.put(record);
-    req.onsuccess = () => resolve(record);
-    req.onerror = (event) => reject(event.target.error);
-  });
-}
-
-function deleteEvent(id) {
-  return new Promise((resolve, reject) => {
-    const tx = state.db.transaction(STORE_NAME, "readwrite");
-    const store = tx.objectStore(STORE_NAME);
-    const req = store.delete(id);
-    req.onsuccess = () => resolve();
-    req.onerror = (event) => reject(event.target.error);
-  });
-}
-
-function clearAllEvents() {
-  return new Promise((resolve, reject) => {
-    const tx = state.db.transaction(STORE_NAME, "readwrite");
-    const store = tx.objectStore(STORE_NAME);
-    const req = store.clear();
-    req.onsuccess = () => resolve();
-    req.onerror = (event) => reject(event.target.error);
-  });
+  dataStore
+    .open()
+    .then(() => refreshEvents())
+    .catch(() => console.error("Unable to open IndexedDB."));
 }
 
 function refreshEvents() {
-  if (!state.db) return;
-  getAllEvents()
+  if (!dataStore.db) return;
+  dataStore.listEvents()
     .then((events) => {
       const sorted = events.sort(
         (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
@@ -269,7 +292,16 @@ function render() {
     deleteButton.textContent = "🗑";
     deleteButton.title = "Remove event";
     deleteButton.addEventListener("click", () => {
-      deleteEvent(event.id).then(refreshEvents);
+      if (!window.confirm("Remove this event?")) return;
+      dataStore.deleteEvent(event.id)
+        .then(() => {
+          refreshEvents();
+          showToast("Event removed", "success");
+        })
+        .catch((error) => {
+          console.error("Unable to remove event", error);
+          showToast("Unable to remove event", "error");
+        });
     });
 
     card.append(text, deleteButton);
@@ -483,7 +515,46 @@ function formatTermRange(start, end) {
     day: "numeric",
     month: "short",
   });
-  return `${startLabel} – ${endLabel}`;
+  return `${startLabel} - ${endLabel}`;
+}
+
+function showToast(message, variant = "info", duration = 3200) {
+  if (!dom.toastContainer || !message) return;
+  const toast = document.createElement("div");
+  toast.className = `toast toast-${variant}`;
+  toast.textContent = message;
+  dom.toastContainer.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add("visible"));
+  const cleanup = () => {
+    toast.removeEventListener("transitionend", cleanup);
+    toast.remove();
+  };
+  setTimeout(() => {
+    toast.classList.remove("visible");
+    toast.addEventListener("transitionend", cleanup, { once: true });
+  }, duration);
+}
+
+function showModalError(message) {
+  if (!dom.modalErrorMessage) return;
+  dom.modalErrorMessage.textContent = message || "";
+}
+
+function clearModalError() {
+  showModalError("");
+}
+
+function updateSidebarState() {
+  const collapsed = state.isSidebarHidden;
+  document.body.classList.toggle("sidebar-collapsed", collapsed);
+  if (dom.sidebarToggle) {
+    dom.sidebarToggle.setAttribute("aria-expanded", (!collapsed).toString());
+  }
+}
+
+function toggleSidebar() {
+  state.isSidebarHidden = !state.isSidebarHidden;
+  updateSidebarState();
 }
 
 function getSelectedTermGroup() {
@@ -627,7 +698,7 @@ function parseCSVRecords(text) {
   });
 }
 
-function mapRowToEvent(row, sourceKey = "nsw-doe") {
+function mapRowToEvent(row, sourceKey = "nsw-doe", origin = ORIGINS.NSWDOE) {
   const date =
     normalizeDate(row.Date) ||
     normalizeDate(row.StartDate) ||
@@ -672,6 +743,7 @@ function mapRowToEvent(row, sourceKey = "nsw-doe") {
     source: sourceKey,
     type,
     yearTags,
+    origin,
     createdAt: new Date().toISOString(),
     startDate: normalizeDate(row.StartDate) || date,
     endDate: normalizeDate(row.EndDate) || date,
@@ -733,8 +805,8 @@ function readFileAsText(file) {
   });
 }
 
-async function importCalendarFile(file, button, input, sourceKey, displayName) {
-  if (!state.db || !file) return;
+async function importCalendarFile(file, button, input, sourceKey, origin, displayName) {
+  if (!dataStore.db || !file) return;
   if (button) {
     button.disabled = true;
   }
@@ -742,14 +814,14 @@ async function importCalendarFile(file, button, input, sourceKey, displayName) {
     const text = await readFileAsText(file);
     const rows = parseCSVRecords(text);
     const events = rows
-      .map((row) => mapRowToEvent(row, sourceKey))
+      .map((row) => mapRowToEvent(row, sourceKey, origin))
       .filter((entry) => entry && entry.date && entry.title);
-    await Promise.all(events.map((entry) => saveEvent(entry)));
+    await Promise.all(events.map((entry) => dataStore.saveEvent(entry)));
     refreshEvents();
-    alert(`Imported ${events.length} ${displayName} entries from ${file.name}.`);
+    showToast(`Imported ${events.length} ${displayName} entries.`, "success");
   } catch (error) {
     console.error("Import failed", error);
-    alert(`Failed to import ${displayName} data. See console for details.`);
+    showToast(`Failed to import ${displayName} data.`, "error");
   } finally {
     if (button) {
       button.disabled = false;
@@ -768,6 +840,27 @@ function addWorkingDays(step) {
   } while (next.getDay() === 0 || next.getDay() === 6);
   state.selectedDate = next;
   render();
+}
+
+function validateEventForm(form) {
+  clearModalError();
+  const title = form.title.value.trim();
+  if (!title) {
+    showModalError("Please provide an event title.");
+    return null;
+  }
+  const normalizedDate = normalizeDate(form.date.value);
+  if (!normalizedDate) {
+    showModalError("Please choose a valid date.");
+    return null;
+  }
+  return {
+    title,
+    date: normalizedDate,
+    subject: form.subject.value.trim(),
+    notes: form.notes.value.trim(),
+    color: form.color.value,
+  };
 }
 
 function getTermGroupIndex() {
@@ -856,6 +949,7 @@ function bindUI() {
     dom.modalOverlay.setAttribute("aria-hidden", "false");
     dom.eventForm.reset();
     dom.eventForm.elements.date.value = toISO(state.selectedDate);
+    clearModalError();
   });
 
   dom.modalOverlay.addEventListener("click", (event) => {
@@ -869,25 +963,31 @@ function bindUI() {
   dom.eventForm.addEventListener("submit", (event) => {
     event.preventDefault();
     const form = event.target;
+    const values = validateEventForm(form);
+    if (!values) return;
     const record = {
       id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
-      title: form.title.value.trim(),
-      date: form.date.value,
-      subject: form.subject.value.trim(),
-      notes: form.notes.value.trim(),
-      color: form.color.value,
+      title: values.title,
+      date: values.date,
+      subject: values.subject,
+      notes: values.notes,
+      color: values.color,
       createdAt: new Date().toISOString(),
+      startDate: values.date,
+      endDate: values.date,
+      yearTags: getYearTagsFromText(`${values.title} ${values.subject} ${values.notes}`),
+      origin: ORIGINS.PERSONAL,
+      source: ORIGINS.PERSONAL,
     };
-    record.yearTags = getYearTagsFromText(
-      `${record.title} ${record.subject} ${record.notes}`
-    );
-    saveEvent(record)
+    dataStore.saveEvent(record)
       .then(() => {
         hideModal();
         refreshEvents();
+        showToast("Event saved", "success");
       })
       .catch((error) => {
         console.error("Unable to save event", error);
+        showToast("Unable to save event", "error");
       });
   });
 
@@ -909,7 +1009,14 @@ function bindUI() {
   dom.importInput?.addEventListener("change", (event) => {
     const file = event.target.files?.[0];
     if (file) {
-      importCalendarFile(file, dom.importButton, dom.importInput, "nsw-doe", "NSW DOE");
+      importCalendarFile(
+        file,
+        dom.importButton,
+        dom.importInput,
+        "nsw-doe",
+        ORIGINS.NSWDOE,
+        "NSW DOE"
+      );
     }
   });
   dom.sentralImportButton?.addEventListener("click", () => {
@@ -918,21 +1025,28 @@ function bindUI() {
   dom.sentralInput?.addEventListener("change", (event) => {
     const file = event.target.files?.[0];
     if (file) {
-      importCalendarFile(file, dom.sentralImportButton, dom.sentralInput, "sentral", "Sentral");
+      importCalendarFile(
+        file,
+        dom.sentralImportButton,
+        dom.sentralInput,
+        "sentral",
+        ORIGINS.SENTRAL,
+        "Sentral"
+      );
     }
   });
 
   dom.clearEventsButton?.addEventListener("click", async () => {
-    if (!state.db) return;
+    if (!dataStore.db) return;
     if (!window.confirm("This will remove every local event. Continue?")) return;
     dom.clearEventsButton.disabled = true;
     try {
-      await clearAllEvents();
+      await dataStore.clearAll();
       refreshEvents();
-      alert("All local events have been cleared.");
+      showToast("All local events have been cleared.", "success");
     } catch (error) {
       console.error("Unable to clear events", error);
-      alert("Failed to clear events. See console for details.");
+      showToast("Failed to clear events.", "error");
     } finally {
       dom.clearEventsButton.disabled = false;
     }
@@ -945,11 +1059,15 @@ function bindUI() {
     render();
   });
 
+  dom.sidebarToggle?.addEventListener("click", toggleSidebar);
+  updateSidebarState();
+
 }
 
 function hideModal() {
   dom.modalOverlay.classList.remove("active");
   dom.modalOverlay.setAttribute("aria-hidden", "true");
+  clearModalError();
 }
 
 if ("indexedDB" in window) {

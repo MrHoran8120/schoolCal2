@@ -94,12 +94,30 @@ body {
   grid-template-columns: 320px 1fr;
   gap: 24px;
   padding: 24px;
+  transition: grid-template-columns 0.3s ease;
 }
 
 .sidebar {
   display: flex;
   flex-direction: column;
   gap: 20px;
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.sidebar-toggle {
+  min-width: 36px;
+  padding: 8px 12px;
+  font-size: 1rem;
+}
+
+body.sidebar-collapsed .sidebar {
+  transform: translateX(-120%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+body.sidebar-collapsed .app-shell {
+  grid-template-columns: 0 1fr;
 }
 
 .card {
@@ -378,6 +396,13 @@ textarea {
   gap: 10px;
 }
 
+.input-error {
+  color: #a80620;
+  margin: -4px 0 6px;
+  min-height: 18px;
+  font-size: 0.85rem;
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;
@@ -467,10 +492,9 @@ textarea {
 }
 
 .term-week-days {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 12px;
-  flex-wrap: nowrap;
-  overflow-x: auto;
   padding-bottom: 8px;
 }
 
@@ -480,7 +504,6 @@ textarea {
   border: 1px solid var(--border);
   padding: 12px;
   min-height: 144px;
-  flex: 0 0 230px;
 }
 
 .term-day-label {
@@ -518,4 +541,41 @@ textarea {
 .term-day-event-empty {
   font-size: 0.85rem;
   color: var(--muted);
+}
+
+.toast-container {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.toast {
+  min-width: 200px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(29, 60, 114, 0.9);
+  box-shadow: var(--shadow-soft);
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.toast.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.toast.success {
+  background: #1d8c72;
+}
+
+.toast.error {
+  background: #d64555;
 }
