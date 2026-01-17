@@ -32,6 +32,9 @@ const dom = {
   modalErrorMessage: document.getElementById("modalErrorMessage"),
   toastContainer: document.getElementById("toastContainer"),
   yearFilterInputs: document.querySelectorAll(".year-filter-input"),
+  exportJsonButton: document.getElementById("exportJsonButton"),
+  importJsonButton: document.getElementById("importJsonButton"),
+  jsonFileInput: document.getElementById("jsonFileInput"),
   sidebarToggle: document.getElementById("sidebarToggle"),
 };
 
@@ -805,6 +808,52 @@ function readFileAsText(file) {
   });
 }
 
+function downloadJSON(filename, payload) {
+  if (!payload?.length) return;
+  const json = JSON.stringify(payload, null, 2);
+  const blob = new Blob([json], { type: "application/json" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(link.href);
+}
+
+function buildEventId(entry, date, origin) {
+  const source = (entry.source || origin || "import").toString().toLowerCase();
+  const base = entry.id || `${entry.title}-${date}`;
+  return `${source}-${sanitizeId(base)}-${date.replace(/-/g, "")}`;
+}
+
+function normalizeImportedEvent(entry) {
+  if (!entry) return null;
+  const normalizedDate = normalizeDate(entry.date);
+  if (!normalizedDate) return null;
+  const destinationOrigin = entry.origin || ORIGINS.PERSONAL;
+  const startDate = normalizeDate(entry.startDate) || normalizedDate;
+  const endDate = normalizeDate(entry.endDate) || normalizedDate;
+  const id = buildEventId(entry, normalizedDate, destinationOrigin);
+  return {
+    id,
+    title: entry.title || "Imported event",
+    date: normalizedDate,
+    startDate,
+    endDate,
+    subject: entry.subject || entry.Groups || entry.Subject || "",
+    notes: entry.notes || entry.Description || "",
+    color: entry.color || "#1d3c72",
+    origin: destinationOrigin,
+    source: entry.source || destinationOrigin,
+    yearTags: Array.isArray(entry.yearTags)
+      ? entry.yearTags
+      : getYearTagsFromText(`${entry.title} ${entry.subject} ${entry.notes}`),
+    createdAt: entry.createdAt || new Date().toISOString(),
+    type: entry.type || "event",
+  };
+}
+
 async function importCalendarFile(file, button, input, sourceKey, origin, displayName) {
   if (!dataStore.db || !file) return;
   if (button) {
@@ -1033,6 +1082,52 @@ function bindUI() {
         ORIGINS.SENTRAL,
         "Sentral"
       );
+    }
+  });
+
+  dom.exportJsonButton?.addEventListener("click", async () => {
+    if (!dataStore.db) return;
+    try {
+      const entries = await dataStore.listEvents();
+      if (!entries.length) {
+        showToast("No events to export.", "info");
+        return;
+      }
+      const fileName = `schoolcal-export-${new Date().toISOString().slice(0, 10)}.json`;
+      downloadJSON(fileName, entries);
+      showToast("JSON export ready.", "success");
+    } catch (error) {
+      console.error("JSON export failed", error);
+      showToast("JSON export failed.", "error");
+    }
+  });
+
+  dom.importJsonButton?.addEventListener("click", () => {
+    dom.jsonFileInput?.click();
+  });
+
+  dom.jsonFileInput?.addEventListener("change", async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await readFileAsText(file);
+      const parsed = JSON.parse(text);
+      if (!Array.isArray(parsed)) {
+        throw new Error("JSON payload must be an array.");
+      }
+      const events = parsed.map(normalizeImportedEvent).filter(Boolean);
+      if (!events.length) {
+        showToast("No valid records found in JSON.", "error");
+        return;
+      }
+      await Promise.all(events.map((entry) => dataStore.saveEvent(entry)));
+      refreshEvents();
+      showToast(`${events.length} records imported.`, "success");
+    } catch (error) {
+      console.error("JSON import failed", error);
+      showToast("JSON import failed.", "error");
+    } finally {
+      event.target.value = "";
     }
   });
 

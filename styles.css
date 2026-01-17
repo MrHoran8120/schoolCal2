@@ -367,7 +367,8 @@ textarea {
 }
 
 #nswFileInput,
-#sentralFileInput {
+#sentralFileInput,
+#jsonFileInput {
   display: none;
 }
 
