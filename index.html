@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#1d3c72" />
+    <title>SchoolCal</title>
+    <link rel="icon" type="image/svg+xml" href="icons/icon-192.svg" />
+    <link rel="manifest" href="manifest.json" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="app-bar">
+      <div class="brand">
+        <div class="avatar">SC</div>
+        <div>
+          <p class="brand-title">SchoolCal</p>
+          <p class="brand-subtitle">Teacher planner</p>
+        </div>
+      </div>
+      <div class="year-selector">
+        <button class="ghost-button" data-nav="prev" aria-label="Previous year">&lt;</button>
+        <span id="yearDisplay">2025</span>
+        <button class="ghost-button" data-nav="next" aria-label="Next year">&gt;</button>
+      </div>
+      <div class="header-actions">
+        <button class="ghost-button" aria-label="Notifications">🔔</button>
+        <button class="ghost-button" aria-label="Refresh data">⟳</button>
+        <button class="ghost-button" aria-label="Show today">🧭</button>
+        <button class="primary action" id="quickAddButton">+ Quick add</button>
+      </div>
+    </header>
+
+    <main class="app-shell">
+      <section class="sidebar">
+        <div class="card">
+          <p class="card-title">View</p>
+          <div class="toggle-group">
+            <button class="toggle" data-view="day">Day</button>
+            <button class="toggle selected" data-view="term">Term</button>
+            <button class="toggle" data-view="week">Week</button>
+          </div>
+          <button class="ghost-button full-width">Settings</button>
+        </div>
+
+        <div class="card">
+          <p class="card-title">Navigate</p>
+          <div class="navigate-control">
+            <button class="ghost-button" data-date-step="-1" aria-label="Previous day">&lt;</button>
+            <span id="selectedDateLabel">Wed, 1 Jan 2025</span>
+            <button class="ghost-button" data-date-step="1" aria-label="Next day">&gt;</button>
+          </div>
+          <input type="date" id="datePicker" />
+        </div>
+
+        <div class="card">
+          <p class="card-title">Imports</p>
+          <button class="ghost-button full-width" id="nswImportButton">NSW DOE</button>
+          <button class="ghost-button full-width" id="sentralImportButton">Sentral</button>
+          <input type="file" id="nswFileInput" accept=".csv" />
+          <input type="file" id="sentralFileInput" accept=".csv" />
+          <button class="ghost-button full-width" id="clearEventsButton">Clear events</button>
+        </div>
+
+        <div class="card">
+          <p class="card-title">Year filters</p>
+          <div class="year-filter-grid">
+            <label class="chip">
+              <input type="checkbox" class="year-filter-input" data-year="7" />
+              Year 7
+            </label>
+            <label class="chip">
+              <input type="checkbox" class="year-filter-input" data-year="8" />
+              Year 8
+            </label>
+            <label class="chip">
+              <input type="checkbox" class="year-filter-input" data-year="9" />
+              Year 9
+            </label>
+            <label class="chip">
+              <input type="checkbox" class="year-filter-input" data-year="10" />
+              Year 10
+            </label>
+            <label class="chip">
+              <input type="checkbox" class="year-filter-input" data-year="11" />
+              Year 11
+            </label>
+            <label class="chip">
+              <input type="checkbox" class="year-filter-input" data-year="12" />
+              Year 12
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <section class="workspace">
+        <div class="workspace-header">
+          <div>
+            <p class="workspace-title" id="workspaceTitle">Term view</p>
+            <p class="workspace-subtitle" id="workspaceSubtitle"></p>
+          </div>
+          <div class="filter-control">
+            <input type="search" id="filterInput" placeholder="Filter events..." />
+            <button class="ghost-button small" id="clearFilter">✕</button>
+          </div>
+          <button class="ghost-button small" id="weekLetterToggle">First week A</button>
+        </div>
+
+        <div class="view-content">
+          <div class="day-view" id="dayView">
+            <div class="day-view-header">
+              <h3>Day view: <span id="eventDateHeading">Today</span></h3>
+              <span class="pill" id="eventCount">0 events</span>
+            </div>
+            <div class="day-event-list" id="eventList"></div>
+          </div>
+
+        <div class="term-grid" id="termGrid"></div>
+        </div>
+      </section>
+    </main>
+
+    <div class="modal-overlay" id="modalOverlay" aria-hidden="true">
+      <div class="modal">
+        <h2>Add new event</h2>
+        <form id="eventForm">
+          <label>
+            Title
+            <input type="text" name="title" required />
+          </label>
+          <label>
+            Date
+            <input type="date" name="date" required />
+          </label>
+          <label>
+            Subject
+            <input type="text" name="subject" placeholder="Math, Science, ..."/>
+          </label>
+          <label>
+            Notes
+            <textarea name="notes" rows="3" placeholder="Lesson goals, reminders, etc."></textarea>
+          </label>
+          <label>
+            Color
+            <input type="color" name="color" value="#1d3c72" />
+          </label>
+          <div class="modal-actions">
+            <button type="button" class="ghost-button" id="modalCancel">Cancel</button>
+            <button type="submit" class="primary action">Save event</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <script src="app.js" defer></script>
+  </body>
+</html>
